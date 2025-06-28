@@ -4,26 +4,7 @@ import matplotlib.pyplot as plt
 import time
 
 # --- 1. 기본 상수 및 우물 정의 ---
-# 실제 값 대신 시뮬레이션에 적합한 스케일로 조정할 수 있습니다.
-# 예: L = 1 (nm), hbar = 1 (eV*fs), m = 1 (electron mass equivalent)
 L_default = 1.0 # 우물 폭 (단위: nm)
-m_electron = 9.109e-31 # 전자의 실제 질량 (kg)
-hbar_val = 1.054e-34 # 디랙 상수 (J*s)
-
-# 시뮬레이션 스케일을 위한 상수 (단위 변환 고려)
-# 예를 들어, 에너지를 eV, 시간을 fs 로 나타내고 싶다면 hbar 값을 조정해야 합니다.
-# 여기서는 일반적인 단위로 계산하고 그래프만 그립니다.
-# E_n = n^2 * pi^2 * hbar^2 / (2 * m * L^2)
-# 시간을 고려할 때, exp(-i * E_n * t / hbar)
-# E_n / hbar 의 단위가 [1/시간] 이 되도록 단위를 맞춰야 합니다.
-# 예시 코드에서는 계산을 단순화하기 위해 적절히 스케일링된 상수를 사용합니다.
-# 실제 양자 역학 계산 시에는 단위 일관성에 매우 주의해야 합니다.
-
-# 시뮬레이션에 사용할 스케일링된 상수 (예시)
-# 만약 L=1(nm)이고 싶다면, m, hbar도 그에 맞게 조정하거나
-# 에너지 단위를 맞춰야 합니다.
-# 여기서는 간단히 L을 조절 가능한 파라미터로만 둡니다.
-# 계산의 편의를 위해 E_n/hbar 의 단위를 임의로 맞춥니다.
 SCALED_MASS = 1.0 # m_e
 SCALED_HBAR = 1.0 # hbar
 
@@ -42,58 +23,46 @@ initial_state_type = st.sidebar.selectbox(
 if initial_state_type == "단일 고유 상태":
     n_state = st.sidebar.slider("주양자수 (n)", 1, 5, 1)
     n_states_to_consider = [n_state]
-    coefficients = [1.0] # 정규화는 나중에 수행
-
+    coefficients = [1.0] 
 else: # 두 고유 상태 중첩
     n1 = st.sidebar.slider("첫 번째 주양자수 (n1)", 1, 5, 1)
     n2 = st.sidebar.slider("두 번째 주양자수 (n2)", 1, 5, 2)
     if n1 == n2:
-        st.sidebar.warning("두 주양자수는 달라야 합니다.")
+        st.sidebar.warning("두 주양자수는 달라야 합니다. 첫 번째 양자수로 설정됩니다.")
         n_states_to_consider = [n1]
         coefficients = [1.0]
     else:
         n_states_to_consider = [n1, n2]
-        # 예시: 같은 비율로 중첩 (정규화 필요)
-        # c1 = 1.0, c2 = 1.0 -> 정규화하면 c1=1/sqrt(2), c2=1/sqrt(2)
         coefficients = [1.0, 1.0]
-        # 실제 계수 계산은 나중에 수행
 
-# 시뮬레이션 시간 설정
 total_time = st.sidebar.slider("총 시뮬레이션 시간 (단위: 임의)", 1.0, 100.0, 20.0, 1.0)
 time_steps = st.sidebar.slider("시간 단계 수", 50, 500, 200, 10)
 animation_speed = st.sidebar.slider("애니메이션 속도 (s/프레임)", 0.01, 0.5, 0.05, 0.01)
 
 # --- 3. 양자역학 함수 정의 ---
+
+# 이 함수는 고유 함수 자체를 반환하지 않고,
+# 고유 에너지 값만 캐싱하도록 수정합니다.
 @st.cache_data
-def get_eigen_functions_and_energies(n_max, L_val, m_val, hbar_val):
+def get_eigen_energies(n_max, L_val, m_val, hbar_val):
     """
-    고유 함수 및 고유 에너지 목록을 반환합니다.
+    고유 에너지 목록을 반환합니다.
     """
-    phis = {}
     energies = {}
-
-    # phi_n_func를 내부 함수로 정의하여 람다 대신 사용
-    def phi_n_func_builder(n_val, L_val):
-        # 이 내부 함수가 실제로 고유 함수를 계산하는 역할을 합니다.
-        # Closure를 사용하여 n_val과 L_val을 기억합니다.
-        def actual_phi(x):
-            return np.sqrt(2/L_val) * np.sin(n_val * np.pi * x / L_val)
-        return actual_phi
-
     for n in range(1, n_max + 1):
-        # 람다 함수 대신, 일반 함수를 반환하는 빌더 함수를 사용합니다.
-        phis[n] = phi_n_func_builder(n, L_val)
-        
-        # 고유 에너지
         energies[n] = (n**2 * np.pi**2 * hbar_val**2) / (2 * m_val * L_val**2)
-    return phis, energies
+    return energies
 
-phis, energies = get_eigen_functions_and_energies(
-    max(n_states_to_consider) if n_states_to_consider else 1,
-    L, SCALED_MASS, SCALED_HBAR
-)
+# 고유 함수는 캐싱하지 않고 필요할 때 직접 계산하도록 합니다.
+# 이는 함수 객체를 캐싱하려 할 때 발생하는 문제를 피하기 위함입니다.
+def calculate_phi_n(x, n, L_val):
+    """
+    n번째 고유 함수를 계산합니다.
+    """
+    return np.sqrt(2/L_val) * np.sin(n * np.pi * x / L_val)
 
-def get_initial_psi(x_vals, n_states, coeffs):
+# 초기 파동함수 계산 및 정규화
+def get_initial_psi(x_vals, n_states, coeffs, L_val):
     """
     초기 파동함수 Psi(x, 0)를 계산하고 정규화합니다.
     """
@@ -101,21 +70,25 @@ def get_initial_psi(x_vals, n_states, coeffs):
     
     # 계수를 제곱합이 1이 되도록 정규화
     sum_of_squares = sum([c**2 for c in coeffs])
+    if sum_of_squares == 0: # 모든 계수가 0일 경우 (예외 처리)
+        st.error("초기 상태 계수가 모두 0입니다. 유효한 계수를 설정해주세요.")
+        return initial_psi, [0.0] * len(coeffs)
+
     normalized_coeffs = [c / np.sqrt(sum_of_squares) for c in coeffs]
 
     for i, n in enumerate(n_states):
-        initial_psi += normalized_coeffs[i] * phis[n](x_vals)
+        initial_psi += normalized_coeffs[i] * calculate_phi_n(x_vals, n, L_val)
     return initial_psi, normalized_coeffs
 
-def get_psi_xt(x_vals, t_val, L_val, m_val, hbar_val, n_states, normalized_coeffs):
+# 시간 t에서의 파동함수 계산
+def get_psi_xt(x_vals, t_val, L_val, m_val, hbar_val, n_states, normalized_coeffs, energies_dict):
     """
     시간 t에서의 파동함수 Psi(x, t)를 계산합니다.
     """
     psi_xt = np.zeros_like(x_vals, dtype=complex)
     for i, n in enumerate(n_states):
-        phi_n_val = phis[n](x_vals)
-        E_n_val = energies[n]
-        # 시간에 따른 위상 변화 항
+        phi_n_val = calculate_phi_n(x_vals, n, L_val) # 매번 계산
+        E_n_val = energies_dict[n] # 캐싱된 에너지 사용
         time_evolution_term = np.exp(-1j * E_n_val * t_val / hbar_val)
         psi_xt += normalized_coeffs[i] * phi_n_val * time_evolution_term
     return psi_xt
@@ -124,8 +97,12 @@ def get_psi_xt(x_vals, t_val, L_val, m_val, hbar_val, n_states, normalized_coeff
 if st.sidebar.button("시뮬레이션 시작"):
     x_coords = np.linspace(0, L, 500)
     
+    # 에너지 값만 캐싱하여 가져옴
+    max_n_for_energy = max(n_states_to_consider) if n_states_to_consider else 1
+    energies_dict = get_eigen_energies(max_n_for_energy, L, SCALED_MASS, SCALED_HBAR)
+
     # 초기 파동함수 계산 및 계수 정규화
-    initial_psi_at_x, final_coeffs = get_initial_psi(x_coords, n_states_to_consider, coefficients)
+    initial_psi_at_x, final_coeffs = get_initial_psi(x_coords, n_states_to_consider, coefficients, L)
 
     # 그래프를 업데이트할 placeholder 생성
     chart_placeholder = st.empty()
@@ -134,7 +111,7 @@ if st.sidebar.button("시뮬레이션 시작"):
         current_time = total_time * (i / (time_steps - 1))
         
         # 현재 시간의 파동함수 계산
-        psi_at_t = get_psi_xt(x_coords, current_time, L, SCALED_MASS, SCALED_HBAR, n_states_to_consider, final_coeffs)
+        psi_at_t = get_psi_xt(x_coords, current_time, L, SCALED_MASS, SCALED_HBAR, n_states_to_consider, final_coeffs, energies_dict)
         
         # 확률 밀도 계산 (|Psi|^2)
         prob_density = np.abs(psi_at_t)**2
