@@ -71,9 +71,19 @@ def get_eigen_functions_and_energies(n_max, L_val, m_val, hbar_val):
     """
     phis = {}
     energies = {}
+
+    # phi_n_func를 내부 함수로 정의하여 람다 대신 사용
+    def phi_n_func_builder(n_val, L_val):
+        # 이 내부 함수가 실제로 고유 함수를 계산하는 역할을 합니다.
+        # Closure를 사용하여 n_val과 L_val을 기억합니다.
+        def actual_phi(x):
+            return np.sqrt(2/L_val) * np.sin(n_val * np.pi * x / L_val)
+        return actual_phi
+
     for n in range(1, n_max + 1):
-        # 고유 함수
-        phis[n] = lambda x, n=n, L=L_val: np.sqrt(2/L) * np.sin(n * np.pi * x / L)
+        # 람다 함수 대신, 일반 함수를 반환하는 빌더 함수를 사용합니다.
+        phis[n] = phi_n_func_builder(n, L_val)
+        
         # 고유 에너지
         energies[n] = (n**2 * np.pi**2 * hbar_val**2) / (2 * m_val * L_val**2)
     return phis, energies
